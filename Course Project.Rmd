@@ -1,0 +1,108 @@
+---
+title: "Activity Prediction from Fitness Tracker Data"
+author: "JP"
+date: "June 24, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Background
+This project was completed for the course project requirement for the Practical Machine Learning course in the Coursera John Hopkins Data Science Specialization.
+
+### Assignment
+The goal of the project is to train a machine learning algorithm to accurately predict the way in which a barbell lift was performed, using data from accelerometers on participants' belt, forearm, arm and dumbell. The way in which the exercise was performed is given in the "classe" variable; this is the variable the algorithm predicts.
+
+The accelerometer data is available at:
+<http://groupware.les.inf.puc-rio.br/har>
+
+The training data for this project are available at:
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+The test data are available at:
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+### Load Data into R
+Initialize R
+```{r, result='hide'}
+#load dependencies
+library(caret)
+
+#set seed for reproducibility
+set.seed(1)
+```
+Load datasets
+```{r}
+#NA values are set using na.strings.
+training <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+                     na.strings = c("", "#DIV/0!", "NA"))
+testing <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+                    na.strings = c("", "#DIV/0!", "NA"))
+
+```
+
+Next, cross-validation is employed by randomly splitting the training data into 60% training and 40% validation sets.
+```{r}
+#remove irrevelant variables, index, usernames, timestamps and new windows
+training <- training[,-c(1:7)]
+train_ind <- createDataPartition(training$classe,p = 0.6, list = FALSE)
+train <- training[train_ind,]
+val <- training[-train_ind,]
+```
+
+Data with near zero variance or more than 60% NAs are removed.
+```{r}
+nzv <- nearZeroVar(train, saveMetrics = TRUE)
+train_clean <- train[,!nzv$nzv]
+na_index <- apply(train_clean, 2, is.na)
+count_na <- apply(na_index, 2, sum)
+train_clean <- train_clean[,!count_na/nrow(train_clean) > 0.6]
+```
+
+### Fit Prediction Model
+Three models are assessed, random forests ("rf"), boosting with trees ("gbm"), and naive bayes ("nb").
+```{r, results= 'hide', warning=FALSE}
+#fit models
+rf.fit <- train(classe~., method = "rf", data = train_clean)
+gbm.fit <- train(classe~., method = "gbm", data = train_clean, verbose = FALSE)
+nb.fit <- train(classe~., method = "nb", data = train_clean)
+
+#predict with models
+rf.pred <- predict(rf.fit, val[-153])
+gbm.pred <- predict(gbm.fit, val[-153])
+nb.pred <- predict(nb.fit, val[-153])
+
+#assess accuracy
+conf.rf <- confusionMatrix(val$classe, rf.pred)
+conf.gbm <- confusionMatrix(val$classe, gbm.pred)
+conf.nb <- confusionMatrix(val$classe, nb.pred)
+```
+
+Printing the accuracy of these models' predictions for the valadation set shows out of sample error:
+```{r}
+acc <- data.frame(Model = c("Random Forest", "Boosted Trees", "Naive Bayes"),
+                  Accuracy = c(conf.rf$overall[1],
+                             conf.gbm$overall[1],
+                             conf.nb$overall[1]),
+                  Kappa = c(conf.rf$overall[2],
+                            conf.gbm$overall[2],
+                            conf.nb$overall[2]))
+acc
+```
+Therefore, the random forests algorithm is best suited to predict the classe varaible in the test set.
+
+### Predict "classe" for test set.
+Using the fitted random forest algorithm against the test set gives the following "classe" predictions:
+```{r}
+pred.test <- predict(rf.fit, testing)
+p.test <- data.frame(Prediction = pred.test)
+p.test
+```
+
+### Reference
+The Weight Lifting Exercise dataset was published in:
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz4CKUp0bDJ
